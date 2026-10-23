@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cryptia - Crypto ML Training & Price Forecasting</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            },
+            dark: {
+              900: '#0b0f19',
+              800: '#111827',
+              700: '#1f2937',
+              600: '#374151',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b0f19; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+  </style>
+</head>
+<body class="bg-dark-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-brand-500 selection:text-white">
+
+  <!-- Navigation Bar -->
+  <header class="border-b border-dark-700 bg-dark-800/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/20">
+          <i data-lucide="trending-up" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Cryptia</span>
+          <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">LightGBM AI</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex space-x-2 bg-dark-900/80 p-1.5 rounded-xl border border-dark-700">
+        <button id="tab-train-btn" onclick="switchTab('train')" class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-brand-600 text-white shadow-md">
+          <i data-lucide="database" class="w-4 h-4"></i>
+          <span>Historic Data & Model</span>
+        </button>
+        <button id="tab-predict-btn" onclick="switchTab('predict')" class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-dark-700">
+          <i data-lucide="sparkles" class="w-4 h-4"></i>
+          <span>Price Forecast (1-30 Days)</span>
+        </button>
+      </nav>
+
+      <!-- Status Indicator -->
+      <div class="hidden sm:flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="api-status-label">API Online</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+    <!-- Crypto Selector Strip -->
+    <section>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs uppercase tracking-wider font-semibold text-slate-400">Select Asset</h2>
+        <span class="text-xs text-slate-500">Real-time daily OHLCV from Binance</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" id="crypto-cards-container">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="hidden p-4 rounded-xl border flex items-center justify-between shadow-2xl transition-all">
+      <div class="flex items-center space-x-3">
+        <i id="toast-icon" data-lucide="info" class="w-5 h-5"></i>
+        <span id="toast-message" class="text-sm font-medium"></span>
+      </div>
+      <button onclick="hideToast()" class="text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB 1: HISTORIC DATA & TRAINING PAGE       -->
+    <!-- ========================================== -->
+    <div id="train-view" class="space-y-8">
+      
+      <!-- Metrics Overview Header -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Current Price</p>
+          <p id="stat-current-price" class="text-2xl font-bold mt-1 text-white">--</p>
+          <p id="stat-price-date" class="text-xs text-slate-500 mt-1">Fetching...</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Model Status</p>
+          <div id="stat-model-status" class="mt-1 flex items-center space-x-2">
+            <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">Checking...</span>
+          </div>
+          <p id="stat-trained-at" class="text-xs text-slate-500 mt-1">--</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Test MAPE Error</p>
+          <p id="stat-mape" class="text-2xl font-bold mt-1 text-white">--</p>
+          <p class="text-xs text-slate-500 mt-1">Mean Absolute % Error</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Directional Accuracy</p>
+          <p id="stat-accuracy" class="text-2xl font-bold mt-1 text-emerald-400">--</p>
+          <p class="text-xs text-slate-500 mt-1">% Correct Up/Down trend</p>
+        </div>
+      </div>
+
+      <!-- Historical Price Chart -->
+      <div class="bg-dark-800 border border-dark-700 rounded-2xl p-6">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-dark-700 gap-4">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <span id="chart-crypto-name">Bitcoin</span>
+              <span class="text-slate-400 font-normal">Historic Price (USD)</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">Daily closing prices with 7-day and 30-day moving averages</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="loadHistory(30)" class="history-range-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300" data-days="30">30D</button>
+            <button onclick="loadHistory(90)" class="history-range-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300" data-days="90">90D</button>
+            <button onclick="loadHistory(180)" class="history-range-btn px-3 py-1 text-xs rounded-lg bg-brand-600 text-white" data-days="180">180D</button>
+            <button onclick="loadHistory(365)" class="history-range-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300" data-days="365">1Y</button>
+          </div>
+        </div>
+
+        <div class="relative h-80 w-full mt-4">
+          <canvas id="historyChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Training Action Card & Feature Importances -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Train Trigger Card -->
+        <div class="bg-dark-800 border border-dark-700 rounded-2xl p-6 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center space-x-3 mb-4">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center border border-purple-500/20">
+                <i data-lucide="cpu" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h4 class="text-base font-bold text-white">Train LightGBM Model</h4>
+                <p class="text-xs text-slate-400">Gradient boosted decision trees</p>
+              </div>
+            </div>
+            <p class="text-sm text-slate-300 leading-relaxed">
+              Fetches the latest 365 daily OHLCV candles, computes stationary returns, multi-lag momentum, rolling volatility, and moving average ratios to train a specialized model.
+            </p>
+            <div class="mt-4 p-3 rounded-xl bg-dark-900 border border-dark-700 text-xs space-y-1 text-slate-400">
+              <div class="flex justify-between"><span>Objective:</span> <span class="font-mono text-slate-200">regression (RMSE)</span></div>
+              <div class="flex justify-between"><span>Estimators:</span> <span class="font-mono text-slate-200">150 trees</span></div>
+              <div class="flex justify-between"><span>Train / Test Split:</span> <span class="font-mono text-slate-200">80% / 20% sequential</span></div>
+            </div>
+          </div>
+
+          <div class="mt-6">
+            <button id="train-btn" onclick="trainCurrentModel()" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium text-sm shadow-lg shadow-purple-500/20 flex items-center justify-center space-x-2 transition-all">
+              <i data-lucide="play" class="w-4 h-4"></i>
+              <span>Fetch Data & Retrain Model</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Model Evaluation Metrics -->
+        <div class="bg-dark-800 border border-dark-700 rounded-2xl p-6 lg:col-span-2">
+          <h4 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
+            <i data-lucide="bar-chart-2" class="w-5 h-5 text-brand-400"></i>
+            <span>Model Performance & Key Feature Drivers</span>
+          </h4>
+          <div id="metrics-content" class="space-y-4">
+            <div class="text-center py-10 text-slate-500 text-sm">
+              Model metrics will appear after training.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB 2: PRICE FORECASTING PAGE (1-30 DAYS)  -->
+    <!-- ========================================== -->
+    <div id="predict-view" class="hidden space-y-8">
+      
+      <!-- Prediction Control Card -->
+      <div class="bg-dark-800 border border-dark-700 rounded-2xl p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+          
+          <div class="lg:col-span-2 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                  <i data-lucide="calendar" class="w-5 h-5 text-brand-400"></i>
+                  <span>Forecast Horizon</span>
+                </h3>
+                <p class="text-xs text-slate-400">Select prediction timeframe from 1 day up to 30 days (1 month)</p>
+              </div>
+              <div class="text-right">
+                <span id="horizon-display" class="text-3xl font-extrabold text-brand-400">7</span>
+                <span class="text-sm text-slate-400 ml-1">Days</span>
+              </div>
+            </div>
+
+            <!-- Horizon Slider -->
+            <input type="range" id="horizon-slider" min="1" max="30" value="7" oninput="updateHorizon(this.value)" class="w-full h-2 bg-dark-700 rounded-lg appearance-none cursor-pointer accent-brand-500">
+
+            <!-- Preset Pills -->
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button onclick="setHorizon(1)" class="preset-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300">1 Day</button>
+              <button onclick="setHorizon(3)" class="preset-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300">3 Days</button>
+              <button onclick="setHorizon(7)" class="preset-btn px-3 py-1 text-xs rounded-lg bg-brand-600 text-white">7 Days (1 Wk)</button>
+              <button onclick="setHorizon(14)" class="preset-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300">14 Days (2 Wks)</button>
+              <button onclick="setHorizon(30)" class="preset-btn px-3 py-1 text-xs rounded-lg bg-dark-700 hover:bg-dark-600 text-slate-300">30 Days (1 Mo)</button>
+            </div>
+          </div>
+
+          <!-- Forecast Button -->
+          <div class="border-t lg:border-t-0 lg:border-l border-dark-700 pt-4 lg:pt-0 lg:pl-6 flex flex-col justify-center">
+            <button id="predict-btn" onclick="runForecast()" class="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-brand-600 via-indigo-600 to-purple-600 hover:from-brand-500 hover:to-purple-500 text-white font-semibold text-base shadow-xl shadow-brand-500/20 flex items-center justify-center space-x-2 transition-all">
+              <i data-lucide="sparkles" class="w-5 h-5"></i>
+              <span>Generate Forecast</span>
+            </button>
+            <p class="text-center text-xs text-slate-500 mt-2">Multi-step recursive model inference</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Forecast Summary Analytics -->
+      <div id="forecast-summary-card" class="hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Starting Price</p>
+          <p id="sum-start-price" class="text-2xl font-bold mt-1 text-white">--</p>
+          <p id="sum-start-date" class="text-xs text-slate-500 mt-1">Today</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Target Predicted Price</p>
+          <p id="sum-end-price" class="text-2xl font-bold mt-1 text-brand-400">--</p>
+          <p id="sum-end-date" class="text-xs text-slate-500 mt-1">Target Date</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Projected Return</p>
+          <p id="sum-return-pct" class="text-2xl font-bold mt-1">--</p>
+          <p id="sum-return-usd" class="text-xs text-slate-500 mt-1">--</p>
+        </div>
+        <div class="bg-dark-800 border border-dark-700 p-5 rounded-2xl">
+          <p class="text-xs text-slate-400 font-medium">Model Trend Signal</p>
+          <div id="sum-trend-badge" class="mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold">--</div>
+          <p class="text-xs text-slate-500 mt-1">Based on projected trajectory</p>
+        </div>
+      </div>
+
+      <!-- Forecast Interactive Chart -->
+      <div id="forecast-chart-container" class="hidden bg-dark-800 border border-dark-700 rounded-2xl p-6">
+        <div class="flex items-center justify-between pb-4 border-b border-dark-700">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <span id="forecast-crypto-name">Bitcoin</span>
+              <span>Price Forecast & Uncertainty Envelope</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">Historical trend (solid) seamlessly connecting to recursive prediction (dashed) with 95% volatility envelope (shaded)</p>
+          </div>
+        </div>
+        <div class="relative h-96 w-full mt-4">
+          <canvas id="forecastChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Day-by-Day Forecast Table -->
+      <div id="forecast-table-container" class="hidden bg-dark-800 border border-dark-700 rounded-2xl p-6">
+        <h4 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
+          <i data-lucide="table" class="w-5 h-5 text-brand-400"></i>
+          <span>Day-by-Day Forecast Breakdown</span>
+        </h4>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-300">
+            <thead class="text-xs uppercase bg-dark-900/60 text-slate-400 border-b border-dark-700">
+              <tr>
+                <th class="py-3 px-4">Day</th>
+                <th class="py-3 px-4">Date</th>
+                <th class="py-3 px-4">Predicted Price</th>
+                <th class="py-3 px-4">Daily Change</th>
+                <th class="py-3 px-4">Total Return</th>
+                <th class="py-3 px-4">Lower Band (-95%)</th>
+                <th class="py-3 px-4">Upper Band (+95%)</th>
+              </tr>
+            </thead>
+            <tbody id="forecast-table-body" class="divide-y divide-dark-700 font-mono text-xs">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-dark-700 bg-dark-800 py-6 text-center text-xs text-slate-500">
+    Cryptia Machine Learning Dashboard • Powered by FastAPI, LightGBM, and Podman
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

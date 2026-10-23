@@ -1,0 +1,99 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - development
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-local:
+    name: Build & Test Container Locally
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Container Image
+        run: |
+          echo "Building cryptia container image with tag cryptia:${{ github.ref_name }}..."
+          docker build --load -t cryptia:${{ github.ref_name }} -t cryptia:latest .
+
+      - name: Test Container Execution
+        run: |
+          echo "Verifying cryptia container..."
+          docker run --rm cryptia:latest
+
+      - name: Build Summary
+        run: |
+          echo "Local container cryptia:${{ github.ref_name }} built and verified successfully."
+
+  deploy-gce:
+    name: Deploy Container to GCE VM
+    runs-on: ubuntu-latest
+    needs: build-local
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Export Container Image
+        run: |
+          echo "Exporting cryptia:latest for deployment..."
+          docker save cryptia:latest | gzip > /tmp/cryptia-image.tar.gz
+          ls -lh /tmp/cryptia-image.tar.gz
+
+      - name: Check Deployment Credentials
+        id: check_creds
+        run: |
+          if [ -z "${{ secrets.GCE_HOST }}" ] || [ -z "${{ secrets.GCE_USER }}" ]; then
+            echo "GCE_HOST or GCE_USER secret not provided."
+            echo "Skipping SSH upload. Set GCE_HOST, GCE_USER, and GCE_SSH_KEY to enable remote deploy."
+            echo "has_creds=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_creds=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Remote GCE VM via SSH
+        if: steps.check_creds.outputs.has_creds == 'true'
+        env:
+          GCE_HOST: ${{ secrets.GCE_HOST }}
+          GCE_USER: ${{ secrets.GCE_USER }}
+          GCE_SSH_KEY: ${{ secrets.GCE_SSH_KEY }}
+          GCE_PORT: ${{ secrets.GCE_PORT || '22' }}
+        run: |
+          echo "Setting up SSH key..."
+          mkdir -p ~/.ssh
+          echo "$GCE_SSH_KEY" > ~/.ssh/gce_key
+          chmod 600 ~/.ssh/gce_key
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/gce_key -p $GCE_PORT"
+
+          echo "Uploading container image to GCE VM ($GCE_USER@$GCE_HOST)..."
+          scp $SSH_OPTS /tmp/cryptia-image.tar.gz "$GCE_USER@$GCE_HOST:/tmp/cryptia-image.tar.gz"
+
+          echo "Updating container on GCE VM..."
+          ssh $SSH_OPTS "$GCE_USER@$GCE_HOST" bash -s << 'EOF'
+            set -e
+            echo "Loading container image..."
+            if command -v podman >/dev/null 2>&1; then
+              ENGINE=podman
+            elif command -v docker >/dev/null 2>&1; then
+              ENGINE=docker
+            else
+              echo "Neither podman nor docker found on remote VM!" >&2
+              exit 1
+            fi
+
+            $ENGINE load < /tmp/cryptia-image.tar.gz
+            rm -f /tmp/cryptia-image.tar.gz
+
+            echo "Restarting cryptia container with $ENGINE..."
+            $ENGINE stop cryptia || true
+            $ENGINE rm cryptia || true
+            $ENGINE run -d --name cryptia --restart always cryptia:latest
+            $ENGINE ps -f name=cryptia
+          EOF
+
+          echo "Remote deployment completed successfully!"
